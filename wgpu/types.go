@@ -31,8 +31,9 @@ type Adapter struct {
 // Device is the logical connection to a GPU, used to create all other resources.
 // Obtained via [Adapter.RequestDevice], release with [Device.Release].
 type Device struct {
-	handle uintptr
-	limits Limits // cached at request time, returned by Limits() without FFI call
+	handle               uintptr
+	limits               Limits // cached at request time, returned by Limits() without FFI call
+	deviceLostCallbackID uintptr
 }
 
 // Queue is used to submit command buffers and write data to buffers/textures.

@@ -19,10 +19,11 @@ type RequestDeviceCallbackInfo struct {
 
 // deviceRequest holds state for an async device request.
 type deviceRequest struct {
-	done    chan struct{}
-	device  *Device
-	status  RequestDeviceStatus
-	message string
+	done                 chan struct{}
+	device               *Device
+	status               RequestDeviceStatus
+	message              string
+	deviceLostCallbackID uintptr
 }
 
 var (
@@ -53,7 +54,10 @@ func handleDeviceCallback(status uintptr, device uintptr, message StringView, us
 		req.status = RequestDeviceStatus(status)
 		if device != 0 {
 			trackResource(device, "Device")
-			req.device = &Device{handle: device}
+			req.device = &Device{
+				handle:               device,
+				deviceLostCallbackID: req.deviceLostCallbackID,
+			}
 		}
 		req.message = stringViewToString(message)
 		close(req.done)
@@ -91,6 +95,19 @@ func (a *Adapter) RequestDevice(options *DeviceDescriptor) (*Device, error) {
 	deviceRequests[reqID] = req
 	deviceRequestsMu.Unlock()
 
+	lossID := uintptr(0)
+	if options != nil && options.DeviceLostCallback != nil {
+		deviceLostCallbackOnce.Do(initDeviceLostCallback)
+		lossID = registerDeviceLostCallback(options.DeviceLostCallback)
+		req.deviceLostCallbackID = lossID
+	}
+	requestSucceeded := false
+	defer func() {
+		if !requestSucceeded {
+			unregisterDeviceLostCallback(lossID)
+		}
+	}()
+
 	// Convert Go-idiomatic descriptor to wire format.
 	var optionsPtr uintptr
 	var reqLimitsWire limitsWire // kept alive for the duration of the FFI call
@@ -105,6 +122,13 @@ func (a *Adapter) RequestDevice(options *DeviceDescriptor) (*Device, error) {
 		if options.RequiredLimits != nil {
 			reqLimitsWire = limitsToWire(options.RequiredLimits)
 			wire.RequiredLimits = uintptr(unsafe.Pointer(&reqLimitsWire))
+		}
+		if lossID != 0 {
+			wire.DeviceLostCallbackInfo = DeviceLostCallbackInfo{
+				Mode:      CallbackModeAllowSpontaneous,
+				Callback:  deviceLostCallbackPtr,
+				Userdata1: lossID,
+			}
 		}
 		optionsPtr = uintptr(unsafe.Pointer(&wire))
 	}
@@ -142,6 +166,7 @@ func (a *Adapter) RequestDevice(options *DeviceDescriptor) (*Device, error) {
 			if req.device != nil {
 				req.device.limits = fetchDeviceLimits(req.device.handle)
 			}
+			requestSucceeded = true
 			return req.device, nil
 		default:
 			// Brief pause to avoid busy spinning
@@ -197,6 +222,8 @@ func (d *Device) Poll(wait bool) bool {
 
 // Release releases the device resources.
 func (d *Device) Release() {
+	unregisterDeviceLostCallback(d.deviceLostCallbackID)
+	d.deviceLostCallbackID = 0
 	if d.handle != 0 {
 		untrackResource(d.handle)
 		procDeviceRelease.Call(d.handle) //nolint:errcheck
@@ -240,6 +267,8 @@ type DeviceDescriptor struct {
 	// RequiredLimits, if non-nil, specifies minimum resource limits the device must meet.
 	// Pass nil to use the adapter's default limits.
 	RequiredLimits *Limits
+	// DeviceLostCallback receives a single device-loss notification.
+	DeviceLostCallback DeviceLostCallback
 }
 
 // limitsToWire converts public Limits to the FFI-compatible limitsWire struct.

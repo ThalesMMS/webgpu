@@ -19,6 +19,10 @@ func deviceCallbackEntry(status, device, messageData, messageLength, userdata1, 
 	return handleDeviceCallback(status, device, StringView{Data: messageData, Length: messageLength}, userdata1)
 }
 
+func deviceLostCallbackEntry(reason, messageData, messageLength, userdata1, _ uintptr) uintptr {
+	return handleDeviceLostCallback(reason, StringView{Data: messageData, Length: messageLength}, userdata1)
+}
+
 func mapCallbackEntry(status, messageData, messageLength, userdata1, _ uintptr) uintptr {
 	return handleMapCallback(status, StringView{Data: messageData, Length: messageLength}, userdata1)
 }

@@ -7,6 +7,19 @@ import (
 	"unsafe"
 )
 
+func TestDeviceLostCallbackEntryWindowsAMD64ABI(t *testing.T) {
+	message := "indirect device loss"
+	view := stringToStringView(message)
+	var got string
+	id := registerDeviceLostCallback(func(_ DeviceLostReason, value string) { got = value })
+	deviceLostCallbackEntry(
+		uintptr(DeviceLostReasonUnknown), uintptr(unsafe.Pointer(&view)), id, 0,
+	)
+	if got != message {
+		t.Fatalf("message = %q, want %q", got, message)
+	}
+}
+
 func TestABICallbackStringViewWindowsAMD64(t *testing.T) {
 	if got := callbackStringView(0); got != (StringView{}) {
 		t.Fatalf("callbackStringView(0) = %#v, want empty", got)

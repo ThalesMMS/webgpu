@@ -7,6 +7,19 @@ import (
 	"unsafe"
 )
 
+func TestDeviceLostCallbackEntryFlatABI(t *testing.T) {
+	message := "flat device loss"
+	view := stringToStringView(message)
+	var got string
+	id := registerDeviceLostCallback(func(_ DeviceLostReason, value string) { got = value })
+	deviceLostCallbackEntry(
+		uintptr(DeviceLostReasonUnknown), view.Data, view.Length, id, 0,
+	)
+	if got != message {
+		t.Fatalf("message = %q, want %q", got, message)
+	}
+}
+
 func TestABICallbackEntriesPreserveStringViewAndUserdata(t *testing.T) {
 	message := []byte("callback message")
 	messageData := uintptr(unsafe.Pointer(&message[0]))
