@@ -14,7 +14,7 @@ func deviceCallbackEntry(status, device, message, userdata1, _ uintptr) uintptr 
 	return handleDeviceCallback(status, device, callbackStringView(message), userdata1)
 }
 
-func deviceLostCallbackEntry(reason, message, userdata1, _ uintptr) uintptr {
+func deviceLostCallbackEntry(_, reason, message, userdata1, _ uintptr) uintptr {
 	return handleDeviceLostCallback(reason, callbackStringView(message), userdata1)
 }
 

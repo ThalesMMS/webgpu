@@ -10,13 +10,18 @@ import (
 func TestDeviceLostCallbackEntryWindowsAMD64ABI(t *testing.T) {
 	message := "indirect device loss"
 	view := stringToStringView(message)
+	const deviceSentinel = uintptr(0xDEADC0DE)
+	const userdata2 = uintptr(0xC0FFEE)
+	var gotReason DeviceLostReason
 	var got string
-	id := registerDeviceLostCallback(func(_ DeviceLostReason, value string) { got = value })
+	id := registerDeviceLostCallback(func(reason DeviceLostReason, value string) {
+		gotReason, got = reason, value
+	})
 	deviceLostCallbackEntry(
-		uintptr(DeviceLostReasonUnknown), uintptr(unsafe.Pointer(&view)), id, 0,
+		deviceSentinel, uintptr(DeviceLostReasonDestroyed), uintptr(unsafe.Pointer(&view)), id, userdata2,
 	)
-	if got != message {
-		t.Fatalf("message = %q, want %q", got, message)
+	if gotReason != DeviceLostReasonDestroyed || got != message {
+		t.Fatalf("reason = %v, message = %q; want %v, %q", gotReason, got, DeviceLostReasonDestroyed, message)
 	}
 }
 
