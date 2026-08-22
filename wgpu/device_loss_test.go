@@ -4,6 +4,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type deviceDestroyProcStub struct {
@@ -19,6 +20,26 @@ func (p *deviceDestroyProcStub) Call(args ...uintptr) (uintptr, uintptr, error) 
 	}
 	if p.onCall != nil {
 		p.onCall()
+	}
+	return 0, 0, nil
+}
+
+type deviceReleaseProcStub struct {
+	calls  atomic.Int32
+	handle uintptr
+	called chan struct{}
+}
+
+func (p *deviceReleaseProcStub) Call(args ...uintptr) (uintptr, uintptr, error) {
+	p.calls.Add(1)
+	if len(args) == 1 {
+		p.handle = args[0]
+	}
+	if p.called != nil {
+		select {
+		case p.called <- struct{}{}:
+		default:
+		}
 	}
 	return 0, 0, nil
 }
@@ -199,6 +220,97 @@ func TestDeviceDestroyAndNativeCallbackHaveOneWinner(t *testing.T) {
 	}
 	if d.deviceLostCallbackID != 0 {
 		t.Fatalf("device loss callback id = %d, want 0", d.deviceLostCallbackID)
+	}
+	if callback := takeDeviceLostCallback(id); callback != nil {
+		t.Fatal("device loss callback registration leaked")
+	}
+}
+
+func TestDeviceDestroyDefersConcurrentReleaseUntilNativeDestroyReturns(t *testing.T) {
+	destroyEntered := make(chan struct{})
+	allowDestroyReturn := make(chan struct{})
+	destroyStub := &deviceDestroyProcStub{
+		onCall: func() {
+			close(destroyEntered)
+			<-allowDestroyReturn
+		},
+	}
+	releaseStub := &deviceReleaseProcStub{called: make(chan struct{}, 1)}
+	originalDestroy, originalRelease := procDeviceDestroy, procDeviceRelease
+	procDeviceDestroy, procDeviceRelease = destroyStub, releaseStub
+	t.Cleanup(func() {
+		procDeviceDestroy, procDeviceRelease = originalDestroy, originalRelease
+	})
+
+	var callbackCalls atomic.Int32
+	id := registerDeviceLostCallback(func(DeviceLostReason, string) { callbackCalls.Add(1) })
+	d := &Device{handle: 123, deviceLostCallbackID: id}
+	destroyDone := make(chan struct{})
+	releaseDone := make(chan struct{})
+	go func() { defer close(destroyDone); d.Destroy() }()
+	<-destroyEntered
+	go func() { defer close(releaseDone); d.Release() }()
+
+	releasedEarly := false
+	select {
+	case <-releaseStub.called:
+		releasedEarly = true
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(allowDestroyReturn)
+	<-destroyDone
+	<-releaseDone
+
+	if releasedEarly {
+		t.Fatal("device release ran before native destroy returned")
+	}
+	if destroyStub.calls.Load() != 1 || releaseStub.calls.Load() != 1 {
+		t.Fatalf("native calls destroy=%d release=%d, want 1 each", destroyStub.calls.Load(), releaseStub.calls.Load())
+	}
+	if releaseStub.handle != 123 || d.handle != 0 {
+		t.Fatalf("release handle=%d device handle=%d, want 123 and 0", releaseStub.handle, d.handle)
+	}
+	if callbackCalls.Load() != 1 || d.deviceLostCallbackID != 0 {
+		t.Fatalf("callback calls=%d callback id=%d, want 1 and 0", callbackCalls.Load(), d.deviceLostCallbackID)
+	}
+	if callback := takeDeviceLostCallback(id); callback != nil {
+		t.Fatal("device loss callback registration leaked")
+	}
+}
+
+func TestDeviceDestroySynchronousCallbackReleaseDoesNotDeadlock(t *testing.T) {
+	var d *Device
+	var callbackCalls atomic.Int32
+	destroyStub := &deviceDestroyProcStub{
+		onCall: func() {
+			handleDeviceLostCallback(uintptr(DeviceLostReasonDestroyed), StringView{}, d.deviceLostCallbackID)
+		},
+	}
+	releaseStub := &deviceReleaseProcStub{}
+	originalDestroy, originalRelease := procDeviceDestroy, procDeviceRelease
+	procDeviceDestroy, procDeviceRelease = destroyStub, releaseStub
+	t.Cleanup(func() {
+		procDeviceDestroy, procDeviceRelease = originalDestroy, originalRelease
+	})
+
+	id := registerDeviceLostCallback(func(DeviceLostReason, string) {
+		callbackCalls.Add(1)
+		d.Release()
+	})
+	d = &Device{handle: 456, deviceLostCallbackID: id}
+	destroyDone := make(chan struct{})
+	go func() { defer close(destroyDone); d.Destroy() }()
+
+	select {
+	case <-destroyDone:
+	case <-time.After(time.Second):
+		t.Fatal("Destroy deadlocked after synchronous callback called Release")
+	}
+	if callbackCalls.Load() != 1 || destroyStub.calls.Load() != 1 || releaseStub.calls.Load() != 1 {
+		t.Fatalf("callback=%d destroy=%d release=%d, want 1 each", callbackCalls.Load(), destroyStub.calls.Load(), releaseStub.calls.Load())
+	}
+	if releaseStub.handle != 456 || d.handle != 0 || d.deviceLostCallbackID != 0 {
+		t.Fatalf("release handle=%d device handle=%d callback id=%d", releaseStub.handle, d.handle, d.deviceLostCallbackID)
 	}
 	if callback := takeDeviceLostCallback(id); callback != nil {
 		t.Fatal("device loss callback registration leaked")

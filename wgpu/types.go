@@ -39,6 +39,8 @@ type Device struct {
 	deviceLostCallbackMu sync.Mutex
 	deviceLostCallbackID uintptr
 	destroyed            bool
+	destroying           bool
+	releasePending       bool
 }
 
 // Queue is used to submit command buffers and write data to buffers/textures.

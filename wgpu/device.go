@@ -222,34 +222,63 @@ func (d *Device) Poll(wait bool) bool {
 
 // Destroy destroys the device without releasing its handle.
 func (d *Device) Destroy() {
-	if d == nil || d.handle == 0 {
+	if d == nil {
 		return
 	}
 	d.deviceLostCallbackMu.Lock()
-	if d.destroyed {
+	if d.handle == 0 || d.destroyed {
 		d.deviceLostCallbackMu.Unlock()
 		return
 	}
 	d.destroyed = true
+	d.destroying = true
 	handle := d.handle
 	d.deviceLostCallbackMu.Unlock()
 
 	procDeviceDestroy.Call(handle) //nolint:errcheck
 	completeDeviceDestroyed(d)
+	d.finishDestroy()
 }
 
 // Release releases the device resources.
 func (d *Device) Release() {
+	if d == nil {
+		return
+	}
 	d.deviceLostCallbackMu.Lock()
+	if d.handle == 0 {
+		d.deviceLostCallbackMu.Unlock()
+		return
+	}
+	if d.destroying {
+		d.releasePending = true
+		d.deviceLostCallbackMu.Unlock()
+		return
+	}
+	handle := d.handle
 	lossID := d.deviceLostCallbackID
+	d.handle = 0
 	d.deviceLostCallbackID = 0
 	d.deviceLostCallbackMu.Unlock()
 	unregisterDeviceLostCallback(lossID)
-	if d.handle != 0 {
-		untrackResource(d.handle)
-		procDeviceRelease.Call(d.handle) //nolint:errcheck
-		d.handle = 0
+	untrackResource(handle)
+	procDeviceRelease.Call(handle) //nolint:errcheck
+}
+
+func (d *Device) finishDestroy() {
+	d.deviceLostCallbackMu.Lock()
+	d.destroying = false
+	if !d.releasePending || d.handle == 0 {
+		d.deviceLostCallbackMu.Unlock()
+		return
 	}
+	handle := d.handle
+	d.handle = 0
+	d.releasePending = false
+	d.deviceLostCallbackMu.Unlock()
+
+	untrackResource(handle)
+	procDeviceRelease.Call(handle) //nolint:errcheck
 }
 
 // Release releases the queue resources.
