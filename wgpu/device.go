@@ -235,9 +235,9 @@ func (d *Device) Destroy() {
 	handle := d.handle
 	d.deviceLostCallbackMu.Unlock()
 
+	defer d.finishDestroy()
 	procDeviceDestroy.Call(handle) //nolint:errcheck
 	completeDeviceDestroyed(d)
-	d.finishDestroy()
 }
 
 // Release releases the device resources.

@@ -27,19 +27,12 @@ func (p *deviceDestroyProcStub) Call(args ...uintptr) (uintptr, uintptr, error) 
 type deviceReleaseProcStub struct {
 	calls  atomic.Int32
 	handle uintptr
-	called chan struct{}
 }
 
 func (p *deviceReleaseProcStub) Call(args ...uintptr) (uintptr, uintptr, error) {
 	p.calls.Add(1)
 	if len(args) == 1 {
 		p.handle = args[0]
-	}
-	if p.called != nil {
-		select {
-		case p.called <- struct{}{}:
-		default:
-		}
 	}
 	return 0, 0, nil
 }
@@ -235,7 +228,7 @@ func TestDeviceDestroyDefersConcurrentReleaseUntilNativeDestroyReturns(t *testin
 			<-allowDestroyReturn
 		},
 	}
-	releaseStub := &deviceReleaseProcStub{called: make(chan struct{}, 1)}
+	releaseStub := &deviceReleaseProcStub{}
 	originalDestroy, originalRelease := procDeviceDestroy, procDeviceRelease
 	procDeviceDestroy, procDeviceRelease = destroyStub, releaseStub
 	t.Cleanup(func() {
@@ -247,23 +240,21 @@ func TestDeviceDestroyDefersConcurrentReleaseUntilNativeDestroyReturns(t *testin
 	d := &Device{handle: 123, deviceLostCallbackID: id}
 	destroyDone := make(chan struct{})
 	releaseDone := make(chan struct{})
+	var allowDestroyOnce sync.Once
+	allowDestroy := func() { allowDestroyOnce.Do(func() { close(allowDestroyReturn) }) }
 	go func() { defer close(destroyDone); d.Destroy() }()
+	defer func() {
+		allowDestroy()
+		<-destroyDone
+	}()
 	<-destroyEntered
 	go func() { defer close(releaseDone); d.Release() }()
-
-	releasedEarly := false
-	select {
-	case <-releaseStub.called:
-		releasedEarly = true
-	case <-time.After(100 * time.Millisecond):
-	}
-	close(allowDestroyReturn)
-	<-destroyDone
 	<-releaseDone
-
-	if releasedEarly {
-		t.Fatal("device release ran before native destroy returned")
+	if releaseStub.calls.Load() != 0 {
+		t.Fatalf("device release calls=%d before native destroy returned, want 0", releaseStub.calls.Load())
 	}
+	allowDestroy()
+	<-destroyDone
 	if destroyStub.calls.Load() != 1 || releaseStub.calls.Load() != 1 {
 		t.Fatalf("native calls destroy=%d release=%d, want 1 each", destroyStub.calls.Load(), releaseStub.calls.Load())
 	}
@@ -275,6 +266,53 @@ func TestDeviceDestroyDefersConcurrentReleaseUntilNativeDestroyReturns(t *testin
 	}
 	if callback := takeDeviceLostCallback(id); callback != nil {
 		t.Fatal("device loss callback registration leaked")
+	}
+}
+
+func TestDeviceDestroyFallbackPanicStillFinishesPendingRelease(t *testing.T) {
+	destroyStub := &deviceDestroyProcStub{}
+	releaseStub := &deviceReleaseProcStub{}
+	originalDestroy, originalRelease := procDeviceDestroy, procDeviceRelease
+	procDeviceDestroy, procDeviceRelease = destroyStub, releaseStub
+	t.Cleanup(func() {
+		procDeviceDestroy, procDeviceRelease = originalDestroy, originalRelease
+	})
+
+	const panicValue = "device loss callback panic"
+	var callbackCalls atomic.Int32
+	var d *Device
+	id := registerDeviceLostCallback(func(DeviceLostReason, string) {
+		callbackCalls.Add(1)
+		d.Release()
+		panic(panicValue)
+	})
+	d = &Device{handle: 789, deviceLostCallbackID: id}
+
+	var recovered any
+	func() {
+		defer func() { recovered = recover() }()
+		d.Destroy()
+	}()
+
+	if recovered != panicValue {
+		t.Fatalf("recovered panic = %v, want %q", recovered, panicValue)
+	}
+	if callbackCalls.Load() != 1 || destroyStub.calls.Load() != 1 || releaseStub.calls.Load() != 1 {
+		t.Fatalf("callback=%d destroy=%d release=%d, want 1 each", callbackCalls.Load(), destroyStub.calls.Load(), releaseStub.calls.Load())
+	}
+	if releaseStub.handle != 789 || d.handle != 0 || d.deviceLostCallbackID != 0 {
+		t.Fatalf("release handle=%d device handle=%d callback id=%d, want 789, 0, 0", releaseStub.handle, d.handle, d.deviceLostCallbackID)
+	}
+	if d.destroying || d.releasePending {
+		t.Fatalf("destroying=%t releasePending=%t, want both false", d.destroying, d.releasePending)
+	}
+	if callback := takeDeviceLostCallback(id); callback != nil {
+		t.Fatal("device loss callback registration leaked")
+	}
+
+	d.Release()
+	if releaseStub.calls.Load() != 1 {
+		t.Fatalf("native release calls=%d after repeated Release, want 1", releaseStub.calls.Load())
 	}
 }
 
