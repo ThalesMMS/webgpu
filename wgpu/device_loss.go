@@ -9,6 +9,8 @@ import (
 // DeviceLostCallback receives one native device-loss notification.
 type DeviceLostCallback func(reason DeviceLostReason, message string)
 
+const deviceDestroyedMessage = "device destroyed"
+
 var (
 	deviceLostCallbacks    = make(map[uintptr]DeviceLostCallback)
 	deviceLostCallbacksMu  sync.Mutex
@@ -50,6 +52,17 @@ func handleDeviceLostCallback(reason uintptr, message StringView, id uintptr) ui
 		callback(DeviceLostReason(reason), stringViewToString(message))
 	}
 	return 0
+}
+
+func completeDeviceDestroyed(d *Device) {
+	if d == nil {
+		return
+	}
+	d.deviceLostCallbackMu.Lock()
+	id := d.deviceLostCallbackID
+	d.deviceLostCallbackID = 0
+	d.deviceLostCallbackMu.Unlock()
+	handleDeviceLostCallback(uintptr(DeviceLostReasonDestroyed), stringToStringView(deviceDestroyedMessage), id)
 }
 
 func initDeviceLostCallback() {

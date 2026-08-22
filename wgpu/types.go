@@ -1,6 +1,9 @@
 package wgpu
 
-import "unsafe"
+import (
+	"sync"
+	"unsafe"
+)
 
 // ptrFromUintptr converts a uintptr to unsafe.Pointer without triggering go vet
 // "possible misuse of unsafe.Pointer" warnings. This is the standard idiom for
@@ -33,7 +36,9 @@ type Adapter struct {
 type Device struct {
 	handle               uintptr
 	limits               Limits // cached at request time, returned by Limits() without FFI call
+	deviceLostCallbackMu sync.Mutex
 	deviceLostCallbackID uintptr
+	destroyed            bool
 }
 
 // Queue is used to submit command buffers and write data to buffers/textures.
