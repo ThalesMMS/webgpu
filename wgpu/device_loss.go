@@ -1,6 +1,7 @@
 package wgpu
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/go-webgpu/goffi/ffi"
@@ -49,7 +50,8 @@ func unregisterDeviceLostCallback(id uintptr) { _ = takeDeviceLostCallback(id) }
 func handleDeviceLostCallback(reason uintptr, message StringView, id uintptr) uintptr {
 	callback := takeDeviceLostCallback(id)
 	if callback != nil {
-		callback(DeviceLostReason(reason), stringViewToString(message))
+		ownedMessage := strings.Clone(stringViewToString(message))
+		callback(DeviceLostReason(reason), ownedMessage)
 	}
 	return 0
 }

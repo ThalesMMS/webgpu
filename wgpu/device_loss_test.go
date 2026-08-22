@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unsafe"
 )
 
 type deviceDestroyProcStub struct {
@@ -53,6 +54,28 @@ func TestDeviceLostCallbackDeliversTypedReasonAndMessageOnce(t *testing.T) {
 
 	if calls.Load() != 1 || gotReason != DeviceLostReasonUnknown || gotMessage != message {
 		t.Fatalf("callback calls=%d reason=%v message=%q", calls.Load(), gotReason, gotMessage)
+	}
+}
+
+func TestDeviceLostCallbackRetainsGoOwnedMessage(t *testing.T) {
+	backing := []byte("adapter reset")
+	want := string(backing)
+	view := StringView{
+		Data:   uintptr(unsafe.Pointer(&backing[0])),
+		Length: uintptr(len(backing)),
+	}
+	var got string
+	id := registerDeviceLostCallback(func(_ DeviceLostReason, message string) {
+		got = message
+	})
+
+	handleDeviceLostCallback(uintptr(DeviceLostReasonUnknown), view, id)
+	for index := range backing {
+		backing[index] = 'x'
+	}
+
+	if got != want {
+		t.Fatalf("retained callback message = %q after native backing changed, want %q", got, want)
 	}
 }
 
