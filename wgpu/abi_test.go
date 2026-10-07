@@ -15,7 +15,7 @@ package wgpu
 //   - MinUniform/StorageBufferOffsetAlignment moved after MaxStorageBufferBindingSize
 //   - WGPUStatus Success=0x01 (was 0x00 in v27)
 //   - WGPUVertexAttribute gained nextInChain (Go wire struct does NOT have it — known gap)
-//   - WGPUBindGroupLayoutEntry gained bindingArraySize (Go wire struct does NOT have it — known gap)
+//   - WGPUBindGroupLayoutEntry gained bindingArraySize after visibility
 //   - WGPUPassTimestampWrites gained nextInChain
 
 import (
@@ -866,40 +866,33 @@ func TestABIWireStructAlignment(t *testing.T) {
 		}
 	})
 
-	t.Run("bindGroupLayoutEntryWire_knownGap", func(t *testing.T) {
-		// v29 STATUS: WGPUBindGroupLayoutEntry in C v29 has bindingArraySize (uint32)
-		// between visibility (uint64) and buffer (bufferBindingLayoutWire).
-		//
-		// This is a KNOWN MIGRATION GAP:
-		//   C v29 layout after visibility:
-		//     bindingArraySize(4)+pad(4)+buffer(...)+sampler(...)+...
-		//   Go bindGroupLayoutEntryWire (current):
-		//     NO bindingArraySize field between visibility and buffer
-		//
-		// Impact: buffer, sampler, texture, storageTexture offsets are all shifted
-		// by -8 relative to C v29. This will cause incorrect binding when binding arrays
-		// are used (NativeFeatureTextureBindingArray).
-		//
-		// TODO(v29-migration): Add bindingArraySize uint32 + padding after Visibility
-		// in bindGroupLayoutEntryWire when upgrading to wgpu-native v29.
-		// Tracked in: docs/dev/kanban/blocked/0010-webgpu-headers-upgrade.md
-
+	t.Run("bindGroupLayoutEntryWire", func(t *testing.T) {
+		// C v29: nextInChain(0)+binding(8)+pad(12)+visibility(16)+bindingArraySize(24)+
+		// pad(28)+buffer(32,24)+sampler(56,16)+texture(72,24)+storageTexture(96,24) = 120
 		var e bindGroupLayoutEntryWire
-		// Verify current layout is self-consistent (no accidental regressions)
-		visibilityOffset := unsafe.Offsetof(e.Visibility)
-		bufferOffset := uintptr(unsafe.Pointer(&e.Buffer)) - uintptr(unsafe.Pointer(&e))
-
-		// Current: visibility at some offset, buffer directly after (no bindingArraySize gap)
-		// In C v29: buffer should be at visibility+8+8 = visibility+16 (bindingArraySize+pad)
-		// Currently buffer is at visibility+8 (just uint64 visibility, no bindingArraySize)
-		expectedCurrentGap := uintptr(8) // sizeof(Visibility uint64) = 8, buffer follows directly
-		actualGap := bufferOffset - visibilityOffset
-		if actualGap != expectedCurrentGap {
-			t.Errorf("gap(Visibility→Buffer) = %d bytes, want %d (current layout without bindingArraySize)",
-				actualGap, expectedCurrentGap)
+		offsets := []struct {
+			name     string
+			got      uintptr
+			expected uintptr
+		}{
+			{"NextInChain", unsafe.Offsetof(e.NextInChain), 0},
+			{"Binding", unsafe.Offsetof(e.Binding), 8},
+			{"Visibility", unsafe.Offsetof(e.Visibility), 16},
+			{"BindingArraySize", unsafe.Offsetof(e.BindingArraySize), 24},
+			{"Buffer", unsafe.Offsetof(e.Buffer), 32},
+			{"Sampler", unsafe.Offsetof(e.Sampler), 56},
+			{"Texture", unsafe.Offsetof(e.Texture), 72},
+			{"StorageTexture", unsafe.Offsetof(e.StorageTexture), 96},
 		}
-		t.Logf("MIGRATION GAP: C v29 expects gap(Visibility→Buffer)=16 bytes (bindingArraySize+pad), current Go has %d bytes",
-			actualGap)
+		for _, o := range offsets {
+			if o.got != o.expected {
+				t.Errorf("offsetof(bindGroupLayoutEntryWire.%s) = %d, want %d",
+					o.name, o.got, o.expected)
+			}
+		}
+		if got := unsafe.Sizeof(e); got != 120 {
+			t.Errorf("sizeof(bindGroupLayoutEntryWire) = %d, want 120", got)
+		}
 	})
 
 	t.Run("colorTargetStateWire", func(t *testing.T) {
@@ -932,9 +925,7 @@ func TestABIWireStructAlignment(t *testing.T) {
 		// This is NOT uint32 as in the webgpu.h spec — wgpu-native uses WGPUFlags typedef.
 		// Verify the Visibility field size via its offset and the next field offset.
 		var e bindGroupLayoutEntryWire
-		visibilityOffset := unsafe.Offsetof(e.Visibility)
-		bufferOffset := uintptr(unsafe.Pointer(&e.Buffer)) - uintptr(unsafe.Pointer(&e))
-		visibilitySize := bufferOffset - visibilityOffset
+		visibilitySize := unsafe.Offsetof(e.BindingArraySize) - unsafe.Offsetof(e.Visibility)
 		const expectedVisibilitySize = uintptr(8) // must be uint64 = 8 bytes
 		if visibilitySize != expectedVisibilitySize {
 			t.Errorf("sizeof(Visibility in bindGroupLayoutEntryWire) = %d, want %d (must be uint64)",

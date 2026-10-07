@@ -98,15 +98,19 @@ type storageTextureBindingLayoutWire struct {
 
 // bindGroupLayoutEntryWire is the FFI-compatible struct with converted enums.
 // CRITICAL: Visibility is uint64 because wgpu-native defines WGPUShaderStageFlags as uint64!
+// v29: bindingArraySize follows visibility; without it every sub-layout is read
+// 8 bytes early and wgpu-native aborts on an entry with no binding type.
 type bindGroupLayoutEntryWire struct {
-	NextInChain    uintptr
-	Binding        uint32
-	_pad           [4]byte // padding to align Visibility to 8 bytes
-	Visibility     uint64  // WGPUShaderStageFlags = uint64 in wgpu-native!
-	Buffer         bufferBindingLayoutWire
-	Sampler        samplerBindingLayoutWire
-	Texture        textureBindingLayoutWire
-	StorageTexture storageTextureBindingLayoutWire
+	NextInChain      uintptr
+	Binding          uint32
+	_pad             [4]byte // padding to align Visibility to 8 bytes
+	Visibility       uint64  // WGPUShaderStageFlags = uint64 in wgpu-native!
+	BindingArraySize uint32  // v29: 0 = not a binding array
+	_pad2            [4]byte // padding to align Buffer to 8 bytes
+	Buffer           bufferBindingLayoutWire
+	Sampler          samplerBindingLayoutWire
+	Texture          textureBindingLayoutWire
+	StorageTexture   storageTextureBindingLayoutWire
 }
 
 // toWire converts a BindGroupLayoutEntry to its wire representation.
