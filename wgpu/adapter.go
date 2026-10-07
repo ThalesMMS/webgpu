@@ -531,5 +531,7 @@ func stringViewToString(sv StringView) string {
 	if sv.Length > 1<<20 { // 1MB max
 		return ""
 	}
-	return unsafe.String((*byte)(ptrFromUintptr(sv.Data)), int(sv.Length))
+	// Copy into Go-owned memory: callers free or reuse the native backing
+	// (for example wgpuAdapterInfoFreeMembers) before the string is used.
+	return string(unsafe.Slice((*byte)(ptrFromUintptr(sv.Data)), int(sv.Length)))
 }
