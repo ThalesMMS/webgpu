@@ -14,7 +14,7 @@ package wgpu
 //   - WGPULimits gained nextInChain as first field
 //   - MinUniform/StorageBufferOffsetAlignment moved after MaxStorageBufferBindingSize
 //   - WGPUStatus Success=0x01 (was 0x00 in v27)
-//   - WGPUVertexAttribute gained nextInChain (Go wire struct does NOT have it — known gap)
+//   - WGPUVertexAttribute gained nextInChain
 //   - WGPUBindGroupLayoutEntry gained bindingArraySize after visibility
 //   - WGPUPassTimestampWrites gained nextInChain
 
@@ -837,32 +837,28 @@ func TestABIWireStructAlignment(t *testing.T) {
 		}
 	})
 
-	t.Run("vertexAttributeWire_size", func(t *testing.T) {
-		// v29 STATUS: WGPUVertexAttribute in C v29 has nextInChain as first field (32 bytes).
-		// Our vertexAttributeWire does NOT have nextInChain (24 bytes).
-		//
-		// This is a KNOWN MIGRATION GAP:
-		//   C v29 WGPUVertexAttribute:
-		//     nextInChain(8)+format(4)+pad(4)+offset(8)+shaderLocation(4)+pad(4) = 32 bytes
-		//   Go vertexAttributeWire (current):
-		//     format(4)+pad(4)+offset(8)+shaderLocation(4)+pad(4) = 24 bytes  [MISSING nextInChain]
-		//
-		// TODO(v29-migration): Add nextInChain to vertexAttributeWire when upgrading to wgpu-native v29.
-		// Tracked in: docs/dev/kanban/blocked/0010-webgpu-headers-upgrade.md
-		const gotSize = unsafe.Sizeof(vertexAttributeWire{})
-		const expectedCurrent = uintptr(24) // current Go wire (no nextInChain)
-		const expectedV29C = uintptr(32)    // C v29 target (has nextInChain)
-
-		if gotSize != expectedCurrent {
-			t.Errorf("sizeof(vertexAttributeWire) = %d, want %d (current Go layout)",
-				gotSize, expectedCurrent)
+	t.Run("vertexAttributeWire", func(t *testing.T) {
+		// v29 BREAKING: nextInChain added as FIRST field in WGPUVertexAttribute.
+		// nextInChain(0)+format(8)+pad(12)+offset(16)+shaderLocation(24)+pad(28) = 32
+		var w vertexAttributeWire
+		offsets := []struct {
+			name     string
+			got      uintptr
+			expected uintptr
+		}{
+			{"NextInChain", unsafe.Offsetof(w.NextInChain), 0},
+			{"Format", unsafe.Offsetof(w.Format), 8},
+			{"Offset", unsafe.Offsetof(w.Offset), 16},
+			{"ShaderLocation", unsafe.Offsetof(w.ShaderLocation), 24},
 		}
-		// Document the gap: once v29 migration is complete, this must be 32.
-		if gotSize == expectedV29C {
-			t.Log("vertexAttributeWire already matches C v29 size (32 bytes) — remove migration TODO")
-		} else {
-			t.Logf("MIGRATION GAP: vertexAttributeWire is %d bytes, C v29 target is %d bytes (missing nextInChain)",
-				gotSize, expectedV29C)
+		for _, o := range offsets {
+			if o.got != o.expected {
+				t.Errorf("offsetof(vertexAttributeWire.%s) = %d, want %d",
+					o.name, o.got, o.expected)
+			}
+		}
+		if got := unsafe.Sizeof(w); got != 32 {
+			t.Errorf("sizeof(vertexAttributeWire) = %d, want 32", got)
 		}
 	})
 

@@ -15,9 +15,11 @@ type VertexAttribute struct {
 }
 
 // vertexAttributeWire is the FFI-compatible structure with converted Format.
-// Field order matches webgpu.h: format, offset, shaderLocation
+// v29 BREAKING: nextInChain added as FIRST field in WGPUVertexAttribute.
+// Field order matches webgpu.h v29: nextInChain, format, offset, shaderLocation.
 type vertexAttributeWire struct {
-	Format         uint32 // converted from gputypes.VertexFormat
+	NextInChain    uintptr // NEW in v29 (must be 0 unless chaining)
+	Format         uint32  // converted from gputypes.VertexFormat
 	_pad1          [4]byte
 	Offset         uint64
 	ShaderLocation uint32
