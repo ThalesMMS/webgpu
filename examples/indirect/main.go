@@ -1,3 +1,5 @@
+//go:build windows
+
 // Package main demonstrates GPU-driven rendering using DrawIndirect.
 // The GPU reads draw parameters (vertex count, instance count) from a buffer.
 package main

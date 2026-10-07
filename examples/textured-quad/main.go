@@ -1,3 +1,5 @@
+//go:build windows
+
 // Package main demonstrates a textured quad rendering using go-webgpu.
 // This example creates a procedural checkerboard texture and renders it on a quad.
 package main

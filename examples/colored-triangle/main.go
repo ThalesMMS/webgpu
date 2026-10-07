@@ -1,3 +1,5 @@
+//go:build windows
+
 // Package main demonstrates a colored triangle rendering using go-webgpu with vertex buffers.
 // This example creates a window using Windows API and renders a triangle with red, green, and blue vertices.
 package main

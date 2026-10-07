@@ -20,6 +20,12 @@ cd adapter_info
 go build
 ```
 
+The windowed examples (`colored-triangle`, `cube`, `indirect`, `mrt`,
+`render_bundle`, `rotating-triangle`, `textured-quad`, `triangle`) create their
+window through the Win32 API and carry a `//go:build windows` constraint, so
+`go build ./...` skips them on Linux and macOS. The headless examples build on
+every platform.
+
 ## Running Examples
 
 Make sure `wgpu_native.dll` is accessible, then:

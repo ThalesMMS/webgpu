@@ -1,3 +1,5 @@
+//go:build windows
+
 // Package main demonstrates Multiple Render Targets (MRT) using go-webgpu.
 // This example renders a rotating triangle to two render targets simultaneously:
 // - Target 0: Color output (BGRA8Unorm) - shown on screen

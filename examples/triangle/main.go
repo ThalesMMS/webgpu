@@ -1,3 +1,5 @@
+//go:build windows
+
 // Package main demonstrates a simple triangle rendering using go-webgpu.
 // This example creates a window using Windows API and renders a red triangle.
 package main

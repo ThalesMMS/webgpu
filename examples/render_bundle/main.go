@@ -1,3 +1,5 @@
+//go:build windows
+
 // Package main demonstrates RenderBundle for pre-recording render commands.
 // RenderBundles are useful for static geometry that doesn't change between frames,
 // reducing CPU overhead by pre-recording draw commands.

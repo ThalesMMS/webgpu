@@ -1,3 +1,5 @@
+//go:build windows
+
 // Package main demonstrates a rotating 3D cube with depth buffer using go-webgpu.
 // This example creates a window using Windows API and renders a rotating colored cube
 // with proper depth testing by updating MVP matrices in a uniform buffer each frame.

@@ -1,3 +1,5 @@
+//go:build windows
+
 // Package main demonstrates a rotating triangle using uniform buffers with go-webgpu.
 // This example creates a window using Windows API and renders a rotating colored triangle
 // by updating a transformation matrix in a uniform buffer each frame.
