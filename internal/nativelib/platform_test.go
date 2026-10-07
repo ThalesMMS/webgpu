@@ -137,22 +137,27 @@ func TestFindLibraryLibDir(t *testing.T) {
 	t.Setenv("WGPU_NATIVE_PATH", "")
 
 	// FindLibrary resolves relative paths, so we must run from tmpDir.
-	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(origDir) //nolint:errcheck // test cleanup
+	t.Chdir(tmpDir)
 
 	found := FindLibrary()
 	if found == "" {
 		t.Fatal("FindLibrary() returned empty — expected to find lib in ./lib/")
 	}
+	if !filepath.IsAbs(found) {
+		t.Errorf("FindLibrary() = %q, want an absolute path", found)
+	}
 
-	absLib, _ := filepath.Abs(libFile)
-	if found != absLib {
-		t.Errorf("FindLibrary() = %q, want %q", found, absLib)
+	// Compare resolved paths: the temp dir may be reached through a symlink
+	// (macOS /var -> /private/var), so the working directory can spell it differently.
+	gotLib, err := filepath.EvalSymlinks(found)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", found, err)
+	}
+	wantLib, err := filepath.EvalSymlinks(libFile)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", libFile, err)
+	}
+	if gotLib != wantLib {
+		t.Errorf("FindLibrary() = %q (resolved %q), want %q", found, gotLib, wantLib)
 	}
 }
